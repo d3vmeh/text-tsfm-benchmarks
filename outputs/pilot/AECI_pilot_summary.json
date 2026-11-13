@@ -1,0 +1,197 @@
+[
+  {
+    "window_id": "AECI-01",
+    "issue_day": "2019-01-22",
+    "last_value": 604.09,
+    "fuel_sums_mwh": {
+      "coal": 369059.0,
+      "nat_gas": 116153.0,
+      "wind": 22839.0
+    },
+    "weather_days": [
+      {
+        "mean_wind": 4.864078151298032,
+        "daylight_solar": 216.83566488413456,
+        "solar_hours": 12,
+        "temp_min_c": -3.658830210078918,
+        "temp_max_c": 0.6817432661632097,
+        "rain": true
+      },
+      {
+        "mean_wind": 4.9508019805531385,
+        "daylight_solar": 248.21044584442336,
+        "solar_hours": 12,
+        "temp_min_c": -10.654345362987044,
+        "temp_max_c": -0.9101785337765023,
+        "rain": true
+      },
+      {
+        "mean_wind": 3.6412250070930816,
+        "daylight_solar": 234.3990088991036,
+        "solar_hours": 12,
+        "temp_min_c": -11.577118866911974,
+        "temp_max_c": -0.7386123682834977,
+        "rain": true
+      }
+    ],
+    "mae_last_value": 30.5634722222222,
+    "mae_daily_repeat": 33.84416666666667,
+    "split": "train"
+  },
+  {
+    "window_id": "AECI-02",
+    "issue_day": "2019-07-16",
+    "last_value": 616.04,
+    "fuel_sums_mwh": {
+      "coal": 319558.0,
+      "nat_gas": 181448.0,
+      "wind": 9815.0
+    },
+    "weather_days": [
+      {
+        "mean_wind": 4.231968386675422,
+        "daylight_solar": 355.14173462068857,
+        "solar_hours": 21,
+        "temp_min_c": 23.054389059868868,
+        "temp_max_c": 33.31784230247081,
+        "rain": true
+      },
+      {
+        "mean_wind": 5.398828126713714,
+        "daylight_solar": 370.26824509491996,
+        "solar_hours": 21,
+        "temp_min_c": 24.268788778230487,
+        "temp_max_c": 33.557360401517485,
+        "rain": true
+      },
+      {
+        "mean_wind": 5.312245820081908,
+        "daylight_solar": 371.00402571054434,
+        "solar_hours": 21,
+        "temp_min_c": 24.161938078330763,
+        "temp_max_c": 33.46468771830553,
+        "rain": true
+      }
+    ],
+    "mae_last_value": 32.07388888888887,
+    "mae_daily_repeat": 30.133194444444445,
+    "split": "train"
+  },
+  {
+    "window_id": "AECI-03",
+    "issue_day": "2020-04-08",
+    "last_value": 541.85,
+    "fuel_sums_mwh": {
+      "coal": 175912.0,
+      "nat_gas": 151659.0,
+      "wind": 42307.0
+    },
+    "weather_days": [
+      {
+        "mean_wind": 5.376747419638129,
+        "daylight_solar": 344.3646557457729,
+        "solar_hours": 18,
+        "temp_min_c": 4.554568650145143,
+        "temp_max_c": 14.350618946135057,
+        "rain": true
+      },
+      {
+        "mean_wind": 3.546909660256125,
+        "daylight_solar": 365.8106091382731,
+        "solar_hours": 18,
+        "temp_min_c": 0.9519832381603237,
+        "temp_max_c": 12.79686194414819,
+        "rain": true
+      },
+      {
+        "mean_wind": 5.28935903489245,
+        "daylight_solar": 210.67796612854863,
+        "solar_hours": 18,
+        "temp_min_c": 7.2519498241568385,
+        "temp_max_c": 16.256481498248036,
+        "rain": true
+      }
+    ],
+    "mae_last_value": 42.591527777777785,
+    "mae_daily_repeat": 72.66902777777779,
+    "split": "train"
+  },
+  {
+    "window_id": "AECI-04",
+    "issue_day": "2020-10-21",
+    "last_value": 651.34,
+    "fuel_sums_mwh": {
+      "coal": 253693.0,
+      "nat_gas": 95984.0,
+      "wind": 51725.0
+    },
+    "weather_days": [
+      {
+        "mean_wind": 5.885715186809683,
+        "daylight_solar": 296.27184050141835,
+        "solar_hours": 12,
+        "temp_min_c": 15.236870467957544,
+        "temp_max_c": 25.299712384823124,
+        "rain": true
+      },
+      {
+        "mean_wind": 5.847446128232684,
+        "daylight_solar": 202.53143392865218,
+        "solar_hours": 12,
+        "temp_min_c": 5.0067746808540505,
+        "temp_max_c": 15.236870467957544,
+        "rain": true
+      },
+      {
+        "mean_wind": 3.9623859223243563,
+        "daylight_solar": 248.81019009649205,
+        "solar_hours": 12,
+        "temp_min_c": 2.941079832306059,
+        "temp_max_c": 11.015374635258127,
+        "rain": true
+      }
+    ],
+    "mae_last_value": 93.69513888888892,
+    "mae_daily_repeat": 77.04124999999999,
+    "split": "train"
+  },
+  {
+    "window_id": "AECI-05",
+    "issue_day": "2021-08-03",
+    "last_value": 661.72,
+    "fuel_sums_mwh": {
+      "coal": 273685.0,
+      "nat_gas": 150810.0,
+      "wind": 27961.0
+    },
+    "weather_days": [
+      {
+        "mean_wind": 2.727879624592232,
+        "daylight_solar": 337.2707159871927,
+        "solar_hours": 21,
+        "temp_min_c": 16.860598580715532,
+        "temp_max_c": 28.515166887488533,
+        "rain": true
+      },
+      {
+        "mean_wind": 3.3051952904449906,
+        "daylight_solar": 265.2314964802769,
+        "solar_hours": 21,
+        "temp_min_c": 18.25515285958801,
+        "temp_max_c": 28.651993789469884,
+        "rain": true
+      },
+      {
+        "mean_wind": 4.332296018903533,
+        "daylight_solar": 332.5040482560844,
+        "solar_hours": 21,
+        "temp_min_c": 18.906941629798723,
+        "temp_max_c": 32.38111492620334,
+        "rain": true
+      }
+    ],
+    "mae_last_value": 54.823750000000025,
+    "mae_daily_repeat": 35.347500000000004,
+    "split": "train"
+  }
+]

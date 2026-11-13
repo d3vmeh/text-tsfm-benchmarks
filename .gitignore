@@ -1,0 +1,11 @@
+# Raw downloads stay out of git. SOURCE_LOG.md records how to get them again.
+data/raw/
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+# Local tool files and private notes
+CLAUDE.md
+.claude/
+# Full builds are large and can be rebuilt with scripts/aeci_pilot.py
+outputs/full/
