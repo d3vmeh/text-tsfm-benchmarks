@@ -9,3 +9,4 @@ CLAUDE.md
 .claude/
 # Full builds are large and can be rebuilt with scripts/aeci_pilot.py
 outputs/full/
+outputs/cik_format/
