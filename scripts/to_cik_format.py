@@ -5,13 +5,15 @@ Reads the files written by scripts/aeci_pilot.py and writes:
   outputs/pilot/AECI_pilot_cik_format.jsonl      the five pilot windows in the same format
 
 Run from the repo root, after aeci_pilot.py:  python3 scripts/to_cik_format.py
+For the one_day_later weather build:          python3 scripts/to_cik_format.py --variant wx1d
+(reads outputs/full_wx1d and outputs/pilot_wx1d, writes outputs/cik_format_wx1d)
 
 The 17 fields, their order and their types follow the CiK dataset
 (https://huggingface.co/datasets/ServiceNow/context-is-key), as built by
 notebooks/create_hf_dataset.ipynb in the CiK code. Unlike the two-file layout, a CiK record holds the
 hidden answers too, inside future_time. Whoever runs a model must show it only the timestamps.
 """
-import json
+import argparse, json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -24,7 +26,7 @@ SERIES_COLUMN = "carbon_intensity"
 CONTEXT_SOURCES = ["c_i", "c_h", "c_cov", "c_f"]
 SKILLS = ["forecasting", "natural language processing"]  # CiK's default skills
 DESCRIPTION = f"This is the hourly direct carbon intensity of electricity in the {GRID} grid region, in gCO2eq/kWh."
-SCENARIO_MARK = "The same-day 00:00 UTC weather run"
+SCENARIO_MARKS = ("The same-day 00:00 UTC weather run", "The weather forecast available at forecast start")
 
 
 def read_jsonl(path):
@@ -48,7 +50,7 @@ def metric_scaling(train_scoring):
 def to_cik(inputs, scoring, scaling):
     assert inputs["window_id"] == scoring["window_id"] and inputs["future_timestamps"] == scoring["future_timestamps"]
     assert all(scoring["target_mask"]), "CiK has no mask field, so every answer must be observed"
-    cut = inputs["context"].index(SCENARIO_MARK)
+    cut = next(inputs["context"].index(m) for m in SCENARIO_MARKS if m in inputs["context"])
     fuel_mix, weather = inputs["context"][:cut].strip(), inputs["context"][cut:].strip()
     return {
         "name": TASK_NAME,
@@ -72,6 +74,12 @@ def to_cik(inputs, scoring, scaling):
 
 
 def main():
+    global FULL, PILOT, OUT
+    ap = argparse.ArgumentParser(description="Convert AECI windows to Context is Key style records")
+    ap.add_argument("--variant", default="", help="wx1d for the one_day_later weather build")
+    args = ap.parse_args()
+    if args.variant:
+        FULL, PILOT, OUT = ROOT / f"outputs/full_{args.variant}", ROOT / f"outputs/pilot_{args.variant}", ROOT / f"outputs/cik_format_{args.variant}"
     scaling = metric_scaling(read_jsonl(FULL / f"{GRID}_train_scoring_only.jsonl"))
     OUT.mkdir(parents=True, exist_ok=True)
     print(f"metric_scaling = {scaling!r} (mean training answer range {1 / scaling:.2f} gCO2eq/kWh)")
@@ -85,7 +93,7 @@ def main():
     with open(PILOT / f"{GRID}_pilot_cik_format.jsonl", "w") as f:
         for a, b in zip(ins, sco):
             f.write(json.dumps(to_cik(a, b, scaling)) + "\n")
-    print(f"pilot: {len(ins)} records -> pilot/{GRID}_pilot_cik_format.jsonl")
+    print(f"pilot: {len(ins)} records -> {PILOT.name}/{GRID}_pilot_cik_format.jsonl")
 
 
 if __name__ == "__main__":

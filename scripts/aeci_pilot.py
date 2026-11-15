@@ -10,9 +10,19 @@ Reads the two raw AECI files (never modifies them) and writes:
   outputs/full/AECI_build_report.json            counts, baselines by split, leak-test result
 
 Run from the repo root:  python3 scripts/aeci_pilot.py
+                    or:  python3 scripts/aeci_pilot.py --weather-alignment one_day_later
+
+--weather-alignment chooses how the weather file's timestamps are read:
+  guide          (default) a row's timestamp is the hour it forecasts, as the project guide says. The window for
+                 issue day D uses the block of rows that starts at D 00:00.
+  one_day_later  a row describes the weather 24 hours after its timestamp. A check against the wind and solar
+                 power actually generated (AECI and DE, training periods) found the rows line up this way. The
+                 window for issue day D then uses the block that starts at D-1 00:00, read as covering D onward.
+                 That choice does not depend on when the block labeled D was really issued, which is not known.
+                 Outputs go to outputs/pilot_wx1d and outputs/full_wx1d, so the default outputs are untouched.
 Rules follow the CarbonCast and IoBT Project Guide, Dataset A.
 """
-import csv, json, math
+import argparse, csv, json, math
 from collections import Counter, OrderedDict
 from datetime import datetime, timedelta, date
 from pathlib import Path
@@ -22,6 +32,13 @@ RAW = ROOT / "data/raw/CarbonCast/data/AECI"
 OUT = ROOT / "outputs/pilot"
 FULL = ROOT / "outputs/full"
 SENTINEL = "-99999.0"  # stands in for "data from the future" in the leak test
+WX_SHIFT_DAYS = 0        # 0 = read the weather file as the guide says; 1 = read each row as one day later
+ALIGNMENT = "guide"
+
+
+def weather_block_start(day):
+    """The timestamp that starts the block of weather rows used for issue day `day`."""
+    return datetime(day.year, day.month, day.day) - timedelta(days=WX_SHIFT_DAYS)
 GRID = "AECI"
 FMT = "%Y-%m-%d %H:%M:%S"
 HIST, HORIZON, MIX_HOURS, RUN_ROWS = 504, 72, 168, 96
@@ -72,7 +89,7 @@ def num(x):
 
 def weather_problem(runs, day):
     """Return a reject reason for the run issued at 00:00 UTC on `day`, or None if it is usable."""
-    copies = runs.get(datetime(day.year, day.month, day.day))
+    copies = runs.get(weather_block_start(day))
     if not copies:
         return "weather run missing"
     if len(copies) > 1:
@@ -136,13 +153,14 @@ def build_window(em, runs, day, window_id):
     shares = sorted(((100 * sums[col] / total, name) for col, name in FUELS), reverse=True)
     mix = ", ".join(f"{name} {s:.1f}%" for s, name in [x for x in shares if x[0] >= 2][:5])
     # Weather: only the run issued at 00:00 UTC on the forecast day.
-    issue = datetime(day.year, day.month, day.day)
+    issue = weather_block_start(day)
     first_hour = runs[issue][0][0][0]
     assert first_hour == issue, f"run for {day} starts at {first_hour}"
     run = {t: r for t, r in runs[issue][0]}
+    shift = timedelta(days=WX_SHIFT_DAYS)                 # rows are looked up by their own timestamp
     parts, days = [], []
     for d in range(3):
-        rows = [run[start + timedelta(hours=24 * d + k)] for k in range(24)]
+        rows = [run[start - shift + timedelta(hours=24 * d + k)] for k in range(24)]
         wind = sum(float(r[WX["wind"]]) for r in rows) / 24
         sol = [float(r[WX["solar"]]) for r in rows if float(r[WX["solar"]]) > 1]
         solar = sum(sol) / len(sol) if sol else 0.0
@@ -152,7 +170,8 @@ def build_window(em, runs, day, window_id):
         parts.append(f"{MON[label.month - 1]} {label.day:02d}: mean wind {wind:.1f} m/s, daylight solar {solar:.1f} W/m², "
                      f"{min(temps):.1f} to {max(temps):.1f} °C, rain {'yes' if rain else 'no'}.")
         days.append({"mean_wind": wind, "daylight_solar": solar, "solar_hours": len(sol), "temp_min_c": min(temps), "temp_max_c": max(temps), "rain": rain})
-    context = (f"{GRID} generation over the 168 hours before forecast start: {mix}. The same-day 00:00 UTC weather run predicts "
+    source = "The same-day 00:00 UTC weather run" if WX_SHIFT_DAYS == 0 else "The weather forecast available at forecast start"
+    context = (f"{GRID} generation over the 168 hours before forecast start: {mix}. {source} predicts "
                f"the following for three days starting at 06:00 UTC. " + " ".join(parts))
     last = past[-1]
     daily = [past[-24 + (k % 24)] for k in range(HORIZON)]
@@ -190,7 +209,7 @@ class LaterRunsScrambled:
 def build_full(em, runs, kept_by_split):
     """Build every kept window, one set of files per split, and leak-test each one."""
     FULL.mkdir(parents=True, exist_ok=True)
-    report = {"grid": GRID, "window_id_format": f"{GRID}-<issue day>", "splits": {}, "leak_test": {"windows_tested": 0, "failures": []}}
+    report = {"grid": GRID, "weather_alignment": ALIGNMENT, "window_id_format": f"{GRID}-<issue day>", "splits": {}, "leak_test": {"windows_tested": 0, "failures": []}}
     with open(FULL / f"{GRID}_window_summary.jsonl", "w") as fsum:
         for split, days in kept_by_split.items():
             n = 0; mae_last = 0.0; mae_daily = 0.0
@@ -200,7 +219,7 @@ def build_full(em, runs, kept_by_split):
                     inputs, scoring, summary = build_window(em, runs, day, wid)
                     # Leak test: replace everything from the forecast start onward, rebuild, compare.
                     start = datetime(day.year, day.month, day.day, 6)
-                    i2, s2, _ = build_window(FutureScrambledEmissions(em, start), LaterRunsScrambled(runs, datetime(day.year, day.month, day.day)), day, wid)
+                    i2, s2, _ = build_window(FutureScrambledEmissions(em, start), LaterRunsScrambled(runs, weather_block_start(day)), day, wid)
                     report["leak_test"]["windows_tested"] += 1
                     if i2 != inputs or s2["future_target"] == scoring["future_target"]:
                         report["leak_test"]["failures"].append(wid)
@@ -214,6 +233,14 @@ def build_full(em, runs, kept_by_split):
 
 
 def main():
+    global WX_SHIFT_DAYS, ALIGNMENT, OUT, FULL
+    ap = argparse.ArgumentParser(description="AECI whole-file check and window build")
+    ap.add_argument("--weather-alignment", choices=["guide", "one_day_later"], default="guide")
+    args = ap.parse_args()
+    if args.weather_alignment == "one_day_later":
+        WX_SHIFT_DAYS, ALIGNMENT = 1, "one_day_later"
+        OUT, FULL = ROOT / "outputs/pilot_wx1d", ROOT / "outputs/full_wx1d"
+    print(f"weather alignment: {ALIGNMENT} -> {OUT.relative_to(ROOT)}, {FULL.relative_to(ROOT)}")
     em, runs = load_emissions(), load_weather_runs()
     hours = sorted(em)
     file_facts = {
@@ -224,7 +251,7 @@ def main():
         "weather_run_days_twice": sorted(d.date().isoformat() for d, c in runs.items() if len(c) > 1),
         "weather_runs_all_zero": sorted(d.date().isoformat() for d, c in runs.items() for r in c if all(num(x[k]) == 0 for _, x in r for k in WX.values())),
     }
-    report = {"grid": GRID, "file_facts": file_facts, "splits": {}}
+    report = {"grid": GRID, "weather_alignment": ALIGNMENT, "file_facts": file_facts, "splits": {}}
     kept_by_split = OrderedDict()
     for split, (a, b) in SPLITS.items():
         kept, reasons, rejected, overlap = 0, Counter(), [], []

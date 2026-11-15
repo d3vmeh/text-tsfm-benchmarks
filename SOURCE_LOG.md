@@ -61,9 +61,28 @@ git rev-parse HEAD   # must print the commit above
 - Values repeat in 3-hour blocks within a run.
 - The same forecast hour appears in up to four runs, with different values in each.
 
+## CarbonCast, main branch (DE)
+
+| Field | Value |
+|---|---|
+| URL | https://github.com/carbonfirst/CarbonCast |
+| Branch | `main` |
+| Commit | `12d6989beb30d2d1a48ea8ef8c0c83745d4dac9d` |
+| Download date | 2026-11-14 |
+| Local path | `data/raw/CarbonCast-main/` |
+| Terms of use and citation | Same as the US branch above |
+
+Sparse checkout of `data/DE/DE_direct_emissions.csv` and `data/DE/DE_weather_forecast.csv`, fetched the same way as the US branch with `--branch main`.
+
+| File | SHA-256 |
+|---|---|
+| `data/DE/DE_direct_emissions.csv` | `67bbba0161419b9a23d3f79b8f4bffe629263ded822da2b1940e0f8c77d2e0b9` |
+| `data/DE/DE_weather_forecast.csv` | `03db383e4351a42fdcb7ae183d4497bf8d8d52bbbaaf837b964d0b914369d369` |
+
+So far these files have only been used for a timing check, not to build windows here.
+
 ## Not downloaded yet
 
-- CarbonCast `main` branch (DE). Commit seen on 2026-11-10: `12d6989beb30d2d1a48ea8ef8c0c83745d4dac9d`. Re-check at download time.
 - Intel Lab data.
 - ALFA dataset.
 - Context is Key record for the example note.

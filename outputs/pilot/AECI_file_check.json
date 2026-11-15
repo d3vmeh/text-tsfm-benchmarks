@@ -1,5 +1,6 @@
 {
   "grid": "AECI",
+  "weather_alignment": "guide",
   "file_facts": {
     "emissions_rows": 35136,
     "emissions_first": "2019-01-01T00:00:00Z",

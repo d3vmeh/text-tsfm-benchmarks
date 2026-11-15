@@ -10,3 +10,9 @@ CLAUDE.md
 # Full builds are large and can be rebuilt with scripts/aeci_pilot.py
 outputs/full/
 outputs/cik_format/
+outputs/full_*/
+outputs/cik_format_*/
+# Secrets never go in the repo
+.env
+.env.*
+outputs/covariates/
