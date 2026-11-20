@@ -1,11 +1,12 @@
-"""Hourly weather series for each AECI window, for models that take numeric covariates.
+"""Hourly weather series for CarbonCast windows, for models that take numeric covariates.
 
 The window text gives the weather as daily summaries. This gives the same weather information hour by hour,
 for the 504 past hours and the 72 future hours of each window, so a forecasting model can be handed it as
 numbers. Nothing here is a measurement of what happened: every value is a forecast, taken only from blocks
 of the weather file that were available at the window's forecast start.
 
-It is built under both readings of the weather file's timestamps (see aeci_pilot.py):
+AECI builds both readings of the weather file's timestamps (see aeci_pilot.py).
+DE builds the guide alignment.
   guide          a row forecasts the hour on its own timestamp
   one_day_later  a row forecasts the hour 24 hours after its timestamp
 
@@ -18,6 +19,7 @@ Writes outputs/covariates/AECI_<split>_covariates_<alignment>.jsonl, one line pe
   {"window_id", "name", "seed", "alignment", "variables", "past_covariates": {var: [504]}, "future_covariates": {var: [72]}}
 
 Run from the repo root:  python3 scripts/aeci_covariates.py [--splits validation]
+For DE: python3 scripts/aeci_covariates.py --grid DE [--splits validation,test]
 """
 import argparse, json
 from datetime import datetime, timedelta
@@ -71,12 +73,15 @@ def build_covariates(runs, day, alignment, cache=None):
 
 
 def main():
-    ap_ = argparse.ArgumentParser(description="Hourly weather covariates for AECI windows")
+    ap_ = argparse.ArgumentParser(description="Hourly weather covariates for CarbonCast windows")
+    ap_.add_argument("--grid", choices=["AECI", "DE"], default="AECI")
     ap_.add_argument("--splits", default="validation", help="comma-separated: train,validation,test (default validation)")
     args = ap_.parse_args()
+    ap.configure_grid(args.grid)
     em, runs = ap.load_emissions(), ap.load_weather_runs()
     OUT.mkdir(parents=True, exist_ok=True)
-    for alignment in SHIFT:
+    alignments = SHIFT if args.grid == "AECI" else ("guide",)
+    for alignment in alignments:
         ap.WX_SHIFT_DAYS = SHIFT[alignment]                                 # so the window filter matches this reading
         for split in args.splits.split(","):
             a, b = ap.SPLITS[split]

@@ -40,6 +40,7 @@ def weather_block_start(day):
     """The timestamp that starts the block of weather rows used for issue day `day`."""
     return datetime(day.year, day.month, day.day) - timedelta(days=WX_SHIFT_DAYS)
 GRID = "AECI"
+WEATHER_TIMESTAMP = "datetime"
 FMT = "%Y-%m-%d %H:%M:%S"
 HIST, HORIZON, MIX_HOURS, RUN_ROWS = 504, 72, 168, 96
 SPLITS = OrderedDict([  # issue-day ranges from the guide
@@ -54,12 +55,41 @@ WX = {"wind": "forecast_avg_wind_speed_wMean", "temp": "forecast_avg_temperature
 MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 
+def configure_grid(grid):
+    """Select DE's source columns, issue-day ranges and pilot dates."""
+    global GRID, RAW, WEATHER_TIMESTAMP, SPLITS, PILOT_DAYS, FUELS
+    if grid == "AECI":
+        return
+    if grid != "DE":
+        raise ValueError(f"Unsupported grid: {grid}")
+    GRID = grid
+    RAW = ROOT / "data/raw/CarbonCast-main/data/DE"
+    WEATHER_TIMESTAMP = "UTC time"
+    SPLITS = OrderedDict([
+        ("train", (date(2020, 1, 22), date(2021, 4, 30))),
+        ("validation", (date(2021, 5, 1), date(2021, 6, 27))),
+        ("test", (date(2021, 7, 1), date(2021, 12, 28))),
+    ])
+    PILOT_DAYS = ["2020-01-22", "2020-07-16", "2021-04-28", "2021-05-01", "2021-07-01"]
+    FUELS = [
+        ("biomass", "biomass"), ("coal", "coal"), ("nat_gas", "natural gas"),
+        ("geothermal", "geothermal"), ("hydro", "hydro"), ("nuclear", "nuclear"),
+        ("oil", "oil"), ("solar", "solar"), ("wind", "wind"), ("unknown", "unknown"),
+    ]
+
+
 def load_emissions():
     """Return {hour: row dict}. The unnamed index column is ignored."""
     em = {}
     with open(RAW / f"{GRID}_direct_emissions.csv") as f:
         for r in csv.DictReader(f):
-            t = datetime.strptime(r["UTC time"], FMT)
+            if GRID == "DE":
+                t = datetime.fromisoformat(r["UTC time"])
+                if t.utcoffset() != timedelta(0):
+                    raise ValueError(f"Expected a UTC emissions timestamp, got {t}")
+                t = t.replace(tzinfo=None)  # internal timestamps represent UTC
+            else:
+                t = datetime.strptime(r["UTC time"], FMT)
             assert t not in em, f"duplicate hour {t}"
             em[t] = r
     return em
@@ -71,8 +101,9 @@ def load_weather_runs():
     runs, cur, prev = {}, [], None
     with open(RAW / f"{GRID}_weather_forecast.csv") as f:
         for r in csv.DictReader(f):
-            t = datetime.strptime(r["datetime"], FMT)
-            if prev is not None and t - prev != timedelta(hours=1):
+            t = datetime.strptime(r[WEATHER_TIMESTAMP], FMT)
+            next_de_block = GRID == "DE" and len(cur) == RUN_ROWS and t.hour == 0
+            if prev is not None and (t - prev != timedelta(hours=1) or next_de_block):
                 runs.setdefault(cur[0][0], []).append(cur); cur = []
             cur.append((t, r)); prev = t
     runs.setdefault(cur[0][0], []).append(cur)
@@ -150,7 +181,11 @@ def build_window(em, runs, day, window_id):
     # Fuel mix: last 168 hours, negatives count as zero, up to five sources with at least 2%.
     sums = {col: sum(max(float(em[h][col]), 0.0) for h in past_h[-MIX_HOURS:]) for col, _ in FUELS}
     total = sum(sums.values())
-    shares = sorted(((100 * sums[col] / total, name) for col, name in FUELS), reverse=True)
+    shares = [(100 * sums[col] / total, name) for col, name in FUELS]
+    if GRID == "DE":
+        shares.sort(key=lambda pair: (-pair[0], pair[1]))
+    else:
+        shares.sort(reverse=True)
     mix = ", ".join(f"{name} {s:.1f}%" for s, name in [x for x in shares if x[0] >= 2][:5])
     # Weather: only the run issued at 00:00 UTC on the forecast day.
     issue = weather_block_start(day)
@@ -167,12 +202,25 @@ def build_window(em, runs, day, window_id):
         temps = [float(r[WX["temp"]]) - 273.15 for r in rows]
         rain = any(float(r[WX["precip"]]) > 0 for r in rows)
         label = (start + timedelta(days=d))
-        parts.append(f"{MON[label.month - 1]} {label.day:02d}: mean wind {wind:.1f} m/s, daylight solar {solar:.1f} W/m², "
-                     f"{min(temps):.1f} to {max(temps):.1f} °C, rain {'yes' if rain else 'no'}.")
+        if GRID == "DE":
+            end = label + timedelta(hours=23)
+            solar_text = f"{solar:.1f} W/m² (hours >1 W/m²)" if sol else "no hours above 1 W/m²"
+            parts.append(
+                f"{MON[label.month - 1]} {label.day} 06:00–{MON[end.month - 1]} {end.day} 05:00: "
+                f"mean wind {wind:.1f} m/s, mean solar {solar_text}, "
+                f"temperature min {min(temps):.1f} °C and max {max(temps):.1f} °C, rain {'yes' if rain else 'no'}."
+            )
+        else:
+            parts.append(f"{MON[label.month - 1]} {label.day:02d}: mean wind {wind:.1f} m/s, daylight solar {solar:.1f} W/m², "
+                         f"{min(temps):.1f} to {max(temps):.1f} °C, rain {'yes' if rain else 'no'}.")
         days.append({"mean_wind": wind, "daylight_solar": solar, "solar_hours": len(sol), "temp_min_c": min(temps), "temp_max_c": max(temps), "rain": rain})
     source = "The same-day 00:00 UTC weather run" if WX_SHIFT_DAYS == 0 else "The weather forecast available at forecast start"
-    context = (f"{GRID} generation over the 168 hours before forecast start: {mix}. {source} predicts "
-               f"the following for three days starting at 06:00 UTC. " + " ".join(parts))
+    if GRID == "DE":
+        context = (f"DE generation over the previous 168 hours: {mix}. "
+                   f"Weather forecast issued {issue.date()} at 00:00 UTC (all hours UTC): " + " ".join(parts))
+    else:
+        context = (f"{GRID} generation over the 168 hours before forecast start: {mix}. {source} predicts "
+                   f"the following for three days starting at 06:00 UTC. " + " ".join(parts))
     last = past[-1]
     daily = [past[-24 + (k % 24)] for k in range(HORIZON)]
     inputs = {"window_id": window_id, "forecast_start": iso(start), "past_timestamps": [iso(h) for h in past_h],
@@ -203,7 +251,7 @@ class LaterRunsScrambled:
         copies = self.runs[d]
         if d <= self.issue:
             return copies
-        return [[(t, {k: (v if k == "datetime" else SENTINEL) for k, v in r.items()}) for t, r in run] for run in copies]
+        return [[(t, {k: (v if k == WEATHER_TIMESTAMP else SENTINEL) for k, v in r.items()}) for t, r in run] for run in copies]
 
 
 def build_full(em, runs, kept_by_split):
@@ -232,10 +280,12 @@ def build_full(em, runs, kept_by_split):
     return report
 
 
-def main():
+def main(grid="AECI"):
     global WX_SHIFT_DAYS, ALIGNMENT, OUT, FULL
-    ap = argparse.ArgumentParser(description="AECI whole-file check and window build")
-    ap.add_argument("--weather-alignment", choices=["guide", "one_day_later"], default="guide")
+    configure_grid(grid)
+    ap = argparse.ArgumentParser(description=f"{GRID} whole-file check and window build")
+    alignments = ["guide", "one_day_later"] if grid == "AECI" else ["guide"]
+    ap.add_argument("--weather-alignment", choices=alignments, default="guide")
     args = ap.parse_args()
     if args.weather_alignment == "one_day_later":
         WX_SHIFT_DAYS, ALIGNMENT = 1, "one_day_later"
@@ -296,6 +346,8 @@ def main():
               f"MAE last-value {v['mae_last_value']:.2f}, MAE daily-repeat {v['mae_daily_repeat']:.2f}")
     lt = full["leak_test"]
     print(f"leak test: {lt['windows_tested']} windows tested, {len(lt['failures'])} failures")
+    if lt["failures"]:
+        raise RuntimeError(f"Leak test failed for {lt['failures']}")
 
 
 if __name__ == "__main__":
