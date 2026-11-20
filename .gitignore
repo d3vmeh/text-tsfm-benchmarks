@@ -7,11 +7,11 @@ __pycache__/
 # Local tool files and private notes
 CLAUDE.md
 .claude/
-# Full builds are large and can be rebuilt with scripts/aeci_pilot.py
+# The two-file builds are large and can be rebuilt with scripts/aeci_pilot.py.
+# The Context is Key format files in outputs/cik_format/ and outputs/cik_format_wx1d/ are the dataset and are tracked.
 outputs/full/
-outputs/cik_format/
 outputs/full_*/
-outputs/cik_format_*/
+outputs/cik_format_wx1d_*/
 # Secrets never go in the repo
 .env
 .env.*
