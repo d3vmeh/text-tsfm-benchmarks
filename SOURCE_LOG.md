@@ -79,7 +79,26 @@ Sparse checkout of `data/DE/DE_direct_emissions.csv` and `data/DE/DE_weather_for
 | `data/DE/DE_direct_emissions.csv` | `67bbba0161419b9a23d3f79b8f4bffe629263ded822da2b1940e0f8c77d2e0b9` |
 | `data/DE/DE_weather_forecast.csv` | `03db383e4351a42fdcb7ae183d4497bf8d8d52bbbaaf837b964d0b914369d369` |
 
-So far these files have only been used for a timing check, not to build windows here.
+The two DE CSVs used for the window build matched both SHA-256 values above. Place them under `data/raw/CarbonCast-main/data/DE/`.
+
+### Column mapping, DE
+
+| File | Column | Meaning and use |
+|---|---|---|
+| Emissions | (unnamed) | Exported index, ignored |
+| Emissions | `UTC time` | Hour of the measurement, with an explicit `+00:00` offset |
+| Emissions | `carbon_intensity` | Direct carbon intensity in gCO2eq/kWh, used as the past and future target |
+| Emissions | `biomass`, `coal`, `nat_gas`, `geothermal`, `hydro`, `nuclear`, `oil`, `solar`, `wind`, `unknown` | Hourly generation in MWh, used for historical fuel-mix text |
+| Weather | `UTC time` | Forecast valid hour in UTC. Group rows by source order. The guide uses the same-day midnight block. |
+| Weather | `forecast_avg_wind_speed_wMean` | Wind speed in m/s |
+| Weather | `forecast_avg_temperature_wMean` | Air temperature in K, converted to °C |
+| Weather | `forecast_avg_dewpoint_wMean` | Dew-point temperature in K per GFS metadata, unused in the text |
+| Weather | `forecast_avg_dswrf_wMean` | Downward shortwave radiation flux in W/m² |
+| Weather | `forecast_avg_precipitation_wMean` | Precipitation, used for a positive-value yes/no flag. The exact GFS field and accumulation interval are unconfirmed. |
+
+The DE emissions file contains 17,544 hourly rows from January 1, 2020 through December 31, 2021 UTC. The weather file contains 105,216 rows in 1,096 blocks. December 4, 2021 appears twice, December 5 is missing, and December 31 is all zero. These facts are recorded in `outputs/pilot/DE_file_check.json`.
+
+The upstream sources identified by CarbonCast are [ENTSO-E](https://transparency.entsoe.eu/) for grid data and the [NCEP GFS forecast archive](https://gdex.ucar.edu/datasets/d084001/detailed_metadata/?view=level) for weather. The [CarbonCast weather documentation](https://github.com/carbonfirst/CarbonCast#51-getting-weather-data) describes how the forecasts were collected.
 
 ## Not downloaded yet
 

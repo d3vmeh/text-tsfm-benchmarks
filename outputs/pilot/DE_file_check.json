@@ -1,0 +1,60 @@
+{
+  "grid": "DE",
+  "weather_alignment": "guide",
+  "file_facts": {
+    "emissions_rows": 17544,
+    "emissions_first": "2020-01-01T00:00:00Z",
+    "emissions_last": "2021-12-31T23:00:00Z",
+    "emissions_missing_hours": 0,
+    "emissions_nonpositive": 0,
+    "weather_rows": 105216,
+    "weather_runs": 1096,
+    "weather_run_days_twice": [
+      "2021-12-04"
+    ],
+    "weather_runs_all_zero": [
+      "2021-12-31"
+    ]
+  },
+  "splits": {
+    "train": {
+      "issue_days": 465,
+      "kept_by_guide_rules": 465,
+      "rejected": [],
+      "reject_reasons": {},
+      "answers_overlap_next_split": [
+        "2021-04-29",
+        "2021-04-30"
+      ],
+      "kept_if_overlap_also_excluded": 463
+    },
+    "validation": {
+      "issue_days": 58,
+      "kept_by_guide_rules": 58,
+      "rejected": [],
+      "reject_reasons": {},
+      "answers_overlap_next_split": [],
+      "kept_if_overlap_also_excluded": 58
+    },
+    "test": {
+      "issue_days": 181,
+      "kept_by_guide_rules": 179,
+      "rejected": [
+        {
+          "issue_day": "2021-12-04",
+          "reason": "weather run day appears twice"
+        },
+        {
+          "issue_day": "2021-12-05",
+          "reason": "weather run missing"
+        }
+      ],
+      "reject_reasons": {
+        "weather run day appears twice": 1,
+        "weather run missing": 1
+      },
+      "answers_overlap_next_split": [],
+      "kept_if_overlap_also_excluded": 179
+    }
+  }
+}
