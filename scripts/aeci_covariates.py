@@ -38,6 +38,7 @@ SHIFT = {"guide": 0, "one_day_later": 1}
 
 
 class BlockUnavailable(Exception):
+    """Raised when a weather block a window needs is missing, duplicated or incomplete."""
     pass
 
 
@@ -53,19 +54,25 @@ def block_rows(runs, start):
 
 
 def build_covariates(runs, day, alignment, cache=None):
-    """Returns (past, future): {variable: [values]} for the 504 past and 72 future hours of the window."""
+    """Returns (past, future): {variable: [values]} for the 504 past and 72 future hours of the window.
+
+    `runs` is what aeci_pilot.load_weather_runs() returned, `day` is the issue day, and `alignment` is
+    "guide" or "one_day_later". `cache` may be shared between calls to avoid re-reading the same block.
+    Raises BlockUnavailable if any block the window needs cannot be used."""
     shift = timedelta(days=SHIFT[alignment])
     start = datetime(day.year, day.month, day.day, 6)
     latest_block = datetime(day.year, day.month, day.day) - shift          # the block the window text uses
     cache = {} if cache is None else cache
     def value_rows(t):
-        label = t - shift                                                   # the row whose forecast is for hour t
+        """The weather row that forecasts hour t, taken from the newest block allowed for that hour."""
+        label = t - shift                                                  # the row whose forecast is for hour t
         block = min(datetime(label.year, label.month, label.day), latest_block)
         if block not in cache:
             cache[block] = block_rows(runs, block)
         return cache[block][label]
-    past = {v: [] for v in VARIABLES}; future = {v: [] for v in VARIABLES}
-    for k in range(-ap.HIST, ap.HORIZON):
+    past = {v: [] for v in VARIABLES}
+    future = {v: [] for v in VARIABLES}
+    for k in range(-ap.HIST, ap.HORIZON):                                   # k < 0 is a past hour, k >= 0 a future hour
         row = value_rows(start + timedelta(hours=k))
         for name, (col, conv) in VARIABLES.items():
             (past if k < 0 else future)[name].append(conv(float(row[col])))
@@ -73,6 +80,8 @@ def build_covariates(runs, day, alignment, cache=None):
 
 
 def main():
+    # For each reading of the weather file and each split: go through the issue days, keep the ones that pass
+    # the same filters as the window build, build their covariates, leak-test them, and write one line each.
     ap_ = argparse.ArgumentParser(description="Hourly weather covariates for CarbonCast windows")
     ap_.add_argument("--grid", choices=["AECI", "DE"], default="AECI")
     ap_.add_argument("--splits", default="validation", help="comma-separated: train,validation,test (default validation)")

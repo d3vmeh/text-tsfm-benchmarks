@@ -1,58 +1,98 @@
-"""AECI: whole-file check, five pilot windows, and the full set of windows.
+"""Build the CarbonCast forecasting windows for one grid (AECI by default, DE through de_pilot.py).
 
-Reads the two raw AECI files (never modifies them) and writes:
-  outputs/pilot/AECI_file_check.json     counts of kept and rejected issue days, with reasons
-  outputs/pilot/AECI_model_inputs.jsonl  what a forecaster may see, one window per line (five pilot windows)
-  outputs/pilot/AECI_scoring_only.jsonl  the hidden answers and masks, for the evaluator only
-  outputs/full/AECI_<split>_model_inputs.jsonl   every kept window in the split
-  outputs/full/AECI_<split>_scoring_only.jsonl   its hidden answers
-  outputs/full/AECI_window_summary.jsonl         one line of numbers per window
-  outputs/full/AECI_build_report.json            counts, baselines by split, leak-test result
+The file name is historical: it began as the AECI pilot and now builds every window for both grids.
 
-Run from the repo root:  python3 scripts/aeci_pilot.py
-                    or:  python3 scripts/aeci_pilot.py --weather-alignment one_day_later
+WHAT A WINDOW IS
+  One forecasting question. For an issue day D the forecast starts at D 06:00 UTC, and the window holds:
+    past values   the 504 hourly carbon-intensity values before the forecast start (21 days)
+    context       a short text: the fuel mix of the past week, and the weather forecast for the next 3 days
+    answers       the 72 hourly values from the forecast start onward (3 days), kept apart for scoring
 
---weather-alignment chooses how the weather file's timestamps are read:
-  guide          (default) a row's timestamp is the hour it forecasts, as the project guide says. The window for
-                 issue day D uses the block of rows that starts at D 00:00.
+WHAT THIS SCRIPT DOES, IN ORDER
+  1. Load the two raw files (never modified): hourly emissions, and the weather forecast.
+  2. Check every issue day in the guide's date ranges against the filters. A day that fails is rejected
+     with a reason; the rest are kept.
+  3. Build five pilot windows, as a small sample that is easy to read.
+  4. Build every kept window, and leak-test each one: the future is replaced by a marker value and the
+     window is built again. If the model inputs change, the window used future data.
+
+WHAT IT WRITES  (<GRID> is AECI or DE)
+  outputs/pilot/<GRID>_file_check.json      counts of kept and rejected issue days, with reasons
+  outputs/pilot/<GRID>_model_inputs.jsonl   five pilot windows: what a forecaster may see, one per line
+  outputs/pilot/<GRID>_scoring_only.jsonl   their hidden answers, for the evaluator only
+  outputs/pilot/<GRID>_pilot_summary.json   the numbers behind each pilot window's text
+  outputs/full/<GRID>_<split>_model_inputs.jsonl   every kept window in the split
+  outputs/full/<GRID>_<split>_scoring_only.jsonl   its hidden answers
+  outputs/full/<GRID>_window_summary.jsonl         one line of numbers per window
+  outputs/full/<GRID>_build_report.json            counts, baseline errors by split, leak-test result
+
+HOW TO RUN  (from the repo root)
+  python3 scripts/aeci_pilot.py                                       AECI
+  python3 scripts/aeci_pilot.py --weather-alignment one_day_later     AECI, second reading of the weather file
+  python3 scripts/de_pilot.py                                         DE
+
+THE TWO READINGS OF THE WEATHER FILE  (--weather-alignment)
+  guide          (default) a row's timestamp is the hour it forecasts, as the project guide says. The window
+                 for issue day D uses the block of rows that starts at D 00:00.
   one_day_later  a row describes the weather 24 hours after its timestamp. A check against the wind and solar
                  power actually generated (AECI and DE, training periods) found the rows line up this way. The
                  window for issue day D then uses the block that starts at D-1 00:00, read as covering D onward.
                  That choice does not depend on when the block labeled D was really issued, which is not known.
                  Outputs go to outputs/pilot_wx1d and outputs/full_wx1d, so the default outputs are untouched.
-Rules follow the CarbonCast and IoBT Project Guide, Dataset A.
+
+Window sizes, split dates and filters follow the CarbonCast and IoBT Project Guide, Dataset A.
 """
 import argparse, csv, json, math
 from collections import Counter, OrderedDict
 from datetime import datetime, timedelta, date
 from pathlib import Path
 
+# ---------------------------------------------------------------------------------------------------------
+# Settings. The values below are for AECI; configure_grid() replaces some of them for DE.
+# ---------------------------------------------------------------------------------------------------------
+
+# Where things are
 ROOT = Path(__file__).resolve().parent.parent
-RAW = ROOT / "data/raw/CarbonCast/data/AECI"
-OUT = ROOT / "outputs/pilot"
-FULL = ROOT / "outputs/full"
-SENTINEL = "-99999.0"  # stands in for "data from the future" in the leak test
+RAW = ROOT / "data/raw/CarbonCast/data/AECI"     # the raw CSV files, never modified
+OUT = ROOT / "outputs/pilot"                     # pilot windows and the file check
+FULL = ROOT / "outputs/full"                     # every kept window
+
+# Which reading of the weather file is in use (set by --weather-alignment in main)
 WX_SHIFT_DAYS = 0        # 0 = read the weather file as the guide says; 1 = read each row as one day later
 ALIGNMENT = "guide"
 
-
-def weather_block_start(day):
-    """The timestamp that starts the block of weather rows used for issue day `day`."""
-    return datetime(day.year, day.month, day.day) - timedelta(days=WX_SHIFT_DAYS)
 GRID = "AECI"
-WEATHER_TIMESTAMP = "datetime"
-FMT = "%Y-%m-%d %H:%M:%S"
-HIST, HORIZON, MIX_HOURS, RUN_ROWS = 504, 72, 168, 96
-SPLITS = OrderedDict([  # issue-day ranges from the guide
+WEATHER_TIMESTAMP = "datetime"       # name of the time column in the weather file
+FMT = "%Y-%m-%d %H:%M:%S"            # how timestamps are written in the raw files
+
+# Window sizes, in hours
+HIST = 504         # past values shown to the model (21 days)
+HORIZON = 72       # values to forecast (3 days)
+MIX_HOURS = 168    # how far back the fuel-mix sentence looks (7 days)
+RUN_ROWS = 96      # rows in one complete weather block: 96 hourly forecasts starting at 00:00 UTC
+
+# First and last issue day of each split, from the guide
+SPLITS = OrderedDict([
     ("train", (date(2019, 1, 22), date(2021, 9, 30))),
     ("validation", (date(2021, 10, 1), date(2021, 12, 28))),
     ("test", (date(2022, 1, 1), date(2022, 12, 31))),
 ])
-PILOT_DAYS = ["2019-01-22", "2019-07-16", "2020-04-08", "2020-10-21", "2021-08-03"]
-FUELS = [("coal", "coal"), ("nat_gas", "natural gas"), ("wind", "wind")]  # CSV column, name used in text
+PILOT_DAYS = ["2019-01-22", "2019-07-16", "2020-04-08", "2020-10-21", "2021-08-03"]   # the five pilot windows
+
+# Generation columns in the emissions file: (CSV column, name used in the text)
+FUELS = [("coal", "coal"), ("nat_gas", "natural gas"), ("wind", "wind")]
+# Weather columns: short name used in this script -> CSV column
 WX = {"wind": "forecast_avg_wind_speed_wMean", "temp": "forecast_avg_temperature_wMean",
       "dew": "forecast_avg_dewpoint_wMean", "solar": "forecast_avg_dswrf_wMean", "precip": "forecast_avg_precipitation_wMean"}
 MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+SENTINEL = "-99999.0"  # stands in for "data from the future" in the leak test
+
+
+def weather_block_start(day):
+    """The timestamp that starts the block of weather rows used for issue day `day`.
+    D 00:00 under the guide's reading, D-1 00:00 under one_day_later."""
+    return datetime(day.year, day.month, day.day) - timedelta(days=WX_SHIFT_DAYS)
 
 
 def configure_grid(grid):
@@ -78,8 +118,13 @@ def configure_grid(grid):
     ]
 
 
+# ---------------------------------------------------------------------------------------------------------
+# Step 1. Load the raw files
+# ---------------------------------------------------------------------------------------------------------
+
 def load_emissions():
-    """Return {hour: row dict}. The unnamed index column is ignored."""
+    """Read the emissions file into {hour: row}, where a row is the CSV line as a dict.
+    A row holds the hour's carbon intensity and its generation by fuel. The unnamed index column is ignored."""
     em = {}
     with open(RAW / f"{GRID}_direct_emissions.csv") as f:
         for r in csv.DictReader(f):
@@ -96,21 +141,32 @@ def load_emissions():
 
 
 def load_weather_runs():
-    """Group the weather file into runs. A new run starts wherever time does not advance by one hour.
-    Returns {issue day: [run, ...]} so that a day that appears twice keeps both copies."""
+    """Read the weather file into {first timestamp of a block: [block, ...]}.
+
+    The file is a sequence of blocks ("runs"), one per day: 96 hourly rows that start at 00:00 UTC. A block
+    is kept as a list of (timestamp, row) pairs. A new block starts wherever time does not advance by one
+    hour. The value is a list of blocks, so a day that appears twice in the file keeps both copies and can
+    be rejected later."""
     runs, cur, prev = {}, [], None
     with open(RAW / f"{GRID}_weather_forecast.csv") as f:
         for r in csv.DictReader(f):
             t = datetime.strptime(r[WEATHER_TIMESTAMP], FMT)
             next_de_block = GRID == "DE" and len(cur) == RUN_ROWS and t.hour == 0
             if prev is not None and (t - prev != timedelta(hours=1) or next_de_block):
-                runs.setdefault(cur[0][0], []).append(cur); cur = []
-            cur.append((t, r)); prev = t
-    runs.setdefault(cur[0][0], []).append(cur)
+                runs.setdefault(cur[0][0], []).append(cur)      # the block just finished; file it under its first hour
+                cur = []
+            cur.append((t, r))
+            prev = t
+    runs.setdefault(cur[0][0], []).append(cur)                  # the last block in the file
     return runs
 
 
+# ---------------------------------------------------------------------------------------------------------
+# Step 2. Decide which issue days are usable
+# ---------------------------------------------------------------------------------------------------------
+
 def num(x):
+    """Turn a CSV cell into a number. Returns None if it is empty, not a number, or not finite."""
     try:
         v = float(x)
     except (TypeError, ValueError):
@@ -119,7 +175,7 @@ def num(x):
 
 
 def weather_problem(runs, day):
-    """Return a reject reason for the run issued at 00:00 UTC on `day`, or None if it is usable."""
+    """Check the weather block used for issue day `day`. Returns a reject reason, or None if it is usable."""
     copies = runs.get(weather_block_start(day))
     if not copies:
         return "weather run missing"
@@ -137,7 +193,11 @@ def weather_problem(runs, day):
 
 
 def check_window(em, runs, day, split):
-    """Apply the guide's filters to one issue day. Returns a reject reason or None."""
+    """Apply the guide's filters to one issue day. Returns a reject reason, or None if the day is kept.
+
+    A day is rejected if, over its 504 past hours and 72 answer hours, any hour is missing, any carbon
+    intensity is not a positive number, or 24 or more hours in a row are exactly equal (a stuck reading).
+    It is also rejected if its weather block is missing, duplicated, incomplete, invalid or all zeros."""
     start = datetime(day.year, day.month, day.day, 6)
     hours = [start + timedelta(hours=k) for k in range(-HIST, HORIZON)]
     if any(h not in em for h in hours):
@@ -147,7 +207,7 @@ def check_window(em, runs, day, split):
         return "invalid carbon intensity"
     if any(v <= 0 for v in ci):
         return "nonpositive carbon intensity"
-    longest = run_len = 1
+    longest = run_len = 1                        # length of the longest stretch of exactly equal neighbours
     for a, b in zip(ci, ci[1:]):
         run_len = run_len + 1 if a == b else 1
         longest = max(longest, run_len)
@@ -168,16 +228,36 @@ def overlaps_next_split(day, split):
     return last_answer >= datetime(nxt.year, nxt.month, nxt.day, 6)
 
 
+# ---------------------------------------------------------------------------------------------------------
+# Step 3. Build one window
+# ---------------------------------------------------------------------------------------------------------
+
 def iso(t):
+    """A timestamp as text, for example 2019-01-22T06:00:00Z."""
     return t.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def build_window(em, runs, day, window_id):
-    start = datetime(day.year, day.month, day.day, 6)
-    past_h = [start + timedelta(hours=k) for k in range(-HIST, 0)]
-    fut_h = [start + timedelta(hours=k) for k in range(HORIZON)]
+    """Build the window for issue day `day`. Returns three dicts: (inputs, scoring, summary).
+
+    inputs    what a forecaster may see: the past timestamps and values, the context text, and the
+              timestamps to forecast
+    scoring   the hidden answers for those timestamps, for the evaluator only
+    summary   the numbers behind the text, plus the error of two simple baselines
+
+    The context text has two sentences, both made from data that existed at the forecast start:
+      fuel mix   each source's share of generation over the past 168 hours
+      weather    for each of the three forecast days, the mean wind, mean daylight solar, lowest and
+                 highest temperature, and whether any rain is forecast
+
+    `em` and `runs` are whatever load_emissions() and load_weather_runs() returned. The leak test passes
+    look-alike objects that hide the future (see FutureScrambledEmissions and LaterRunsScrambled)."""
+    start = datetime(day.year, day.month, day.day, 6)                    # the forecast start, 06:00 UTC
+    past_h = [start + timedelta(hours=k) for k in range(-HIST, 0)]       # the 504 hours before it
+    fut_h = [start + timedelta(hours=k) for k in range(HORIZON)]         # the 72 hours from it onward
     past = [float(em[h]["carbon_intensity"]) for h in past_h]
     fut = [float(em[h]["carbon_intensity"]) for h in fut_h]
+
     # Fuel mix: last 168 hours, negatives count as zero, up to five sources with at least 2%.
     sums = {col: sum(max(float(em[h][col]), 0.0) for h in past_h[-MIX_HOURS:]) for col, _ in FUELS}
     total = sum(sums.values())
@@ -187,19 +267,21 @@ def build_window(em, runs, day, window_id):
     else:
         shares.sort(reverse=True)
     mix = ", ".join(f"{name} {s:.1f}%" for s, name in [x for x in shares if x[0] >= 2][:5])
+
     # Weather: only the run issued at 00:00 UTC on the forecast day.
     issue = weather_block_start(day)
     first_hour = runs[issue][0][0][0]
     assert first_hour == issue, f"run for {day} starts at {first_hour}"
-    run = {t: r for t, r in runs[issue][0]}
+    run = {t: r for t, r in runs[issue][0]}               # this block's rows, looked up by timestamp
     shift = timedelta(days=WX_SHIFT_DAYS)                 # rows are looked up by their own timestamp
-    parts, days = [], []
+    parts, days = [], []                                  # one sentence and one set of numbers per forecast day
     for d in range(3):
+        # A forecast day is 24 hours: 06:00 through 05:00 the next morning.
         rows = [run[start - shift + timedelta(hours=24 * d + k)] for k in range(24)]
         wind = sum(float(r[WX["wind"]]) for r in rows) / 24
-        sol = [float(r[WX["solar"]]) for r in rows if float(r[WX["solar"]]) > 1]
+        sol = [float(r[WX["solar"]]) for r in rows if float(r[WX["solar"]]) > 1]     # hours with sunlight
         solar = sum(sol) / len(sol) if sol else 0.0
-        temps = [float(r[WX["temp"]]) - 273.15 for r in rows]
+        temps = [float(r[WX["temp"]]) - 273.15 for r in rows]                        # Kelvin to Celsius
         rain = any(float(r[WX["precip"]]) > 0 for r in rows)
         label = (start + timedelta(days=d))
         if GRID == "DE":
@@ -214,6 +296,8 @@ def build_window(em, runs, day, window_id):
             parts.append(f"{MON[label.month - 1]} {label.day:02d}: mean wind {wind:.1f} m/s, daylight solar {solar:.1f} W/m², "
                          f"{min(temps):.1f} to {max(temps):.1f} °C, rain {'yes' if rain else 'no'}.")
         days.append({"mean_wind": wind, "daylight_solar": solar, "solar_hours": len(sol), "temp_min_c": min(temps), "temp_max_c": max(temps), "rain": rain})
+
+    # Put the two sentences together.
     source = "The same-day 00:00 UTC weather run" if WX_SHIFT_DAYS == 0 else "The weather forecast available at forecast start"
     if GRID == "DE":
         context = (f"DE generation over the previous 168 hours: {mix}. "
@@ -221,8 +305,11 @@ def build_window(em, runs, day, window_id):
     else:
         context = (f"{GRID} generation over the 168 hours before forecast start: {mix}. {source} predicts "
                    f"the following for three days starting at 06:00 UTC. " + " ".join(parts))
+
+    # Two simple baselines, for reference: repeat the last value, or repeat the last 24 hours.
     last = past[-1]
     daily = [past[-24 + (k % 24)] for k in range(HORIZON)]
+
     inputs = {"window_id": window_id, "forecast_start": iso(start), "past_timestamps": [iso(h) for h in past_h],
               "past_target": past, "context": context, "future_timestamps": [iso(h) for h in fut_h]}
     scoring = {"window_id": window_id, "forecast_start": iso(start), "future_timestamps": [iso(h) for h in fut_h],
@@ -231,6 +318,14 @@ def build_window(em, runs, day, window_id):
                "mae_last_value": sum(abs(x - last) for x in fut) / HORIZON, "mae_daily_repeat": sum(abs(x - y) for x, y in zip(fut, daily)) / HORIZON}
     return inputs, scoring, summary
 
+
+# ---------------------------------------------------------------------------------------------------------
+# Step 4. The leak test, and building every window
+#
+# The leak test asks one question: could this window's inputs have been made at the forecast start? To find
+# out, the window is built a second time from data in which everything later than the forecast start has
+# been replaced by a marker value. If the inputs come out the same, nothing from the future was used.
+# ---------------------------------------------------------------------------------------------------------
 
 class FutureScrambledEmissions:
     """Looks like the emissions table, but every row at or after `start` holds the sentinel."""
@@ -255,30 +350,43 @@ class LaterRunsScrambled:
 
 
 def build_full(em, runs, kept_by_split):
-    """Build every kept window, one set of files per split, and leak-test each one."""
+    """Build every kept window, one set of files per split, and leak-test each one.
+    `kept_by_split` is {split name: [issue days that passed the filters]}. Returns the build report."""
     FULL.mkdir(parents=True, exist_ok=True)
     report = {"grid": GRID, "weather_alignment": ALIGNMENT, "window_id_format": f"{GRID}-<issue day>", "splits": {}, "leak_test": {"windows_tested": 0, "failures": []}}
     with open(FULL / f"{GRID}_window_summary.jsonl", "w") as fsum:
         for split, days in kept_by_split.items():
-            n = 0; mae_last = 0.0; mae_daily = 0.0
+            n = 0
+            mae_last = 0.0
+            mae_daily = 0.0
             with open(FULL / f"{GRID}_{split}_model_inputs.jsonl", "w") as fi, open(FULL / f"{GRID}_{split}_scoring_only.jsonl", "w") as fs:
                 for day in days:
                     wid = f"{GRID}-{day.isoformat()}"
                     inputs, scoring, summary = build_window(em, runs, day, wid)
                     # Leak test: replace everything from the forecast start onward, rebuild, compare.
+                    # A window fails if its inputs changed, or if its answers did NOT change (which would
+                    # mean the scrambling missed them).
                     start = datetime(day.year, day.month, day.day, 6)
                     i2, s2, _ = build_window(FutureScrambledEmissions(em, start), LaterRunsScrambled(runs, weather_block_start(day)), day, wid)
                     report["leak_test"]["windows_tested"] += 1
                     if i2 != inputs or s2["future_target"] == scoring["future_target"]:
                         report["leak_test"]["failures"].append(wid)
                     summary["split"] = split
-                    fi.write(json.dumps(inputs) + "\n"); fs.write(json.dumps(scoring) + "\n"); fsum.write(json.dumps(summary) + "\n")
-                    n += 1; mae_last += summary["mae_last_value"]; mae_daily += summary["mae_daily_repeat"]
+                    fi.write(json.dumps(inputs) + "\n")
+                    fs.write(json.dumps(scoring) + "\n")
+                    fsum.write(json.dumps(summary) + "\n")
+                    n += 1
+                    mae_last += summary["mae_last_value"]
+                    mae_daily += summary["mae_daily_repeat"]
             report["splits"][split] = {"windows": n, "first_issue_day": days[0].isoformat(), "last_issue_day": days[-1].isoformat(),
                                        "mae_last_value": mae_last / n, "mae_daily_repeat": mae_daily / n}
     (FULL / f"{GRID}_build_report.json").write_text(json.dumps(report, indent=2) + "\n")
     return report
 
+
+# ---------------------------------------------------------------------------------------------------------
+# The whole run
+# ---------------------------------------------------------------------------------------------------------
 
 def main(grid="AECI"):
     global WX_SHIFT_DAYS, ALIGNMENT, OUT, FULL
@@ -291,6 +399,8 @@ def main(grid="AECI"):
         WX_SHIFT_DAYS, ALIGNMENT = 1, "one_day_later"
         OUT, FULL = ROOT / "outputs/pilot_wx1d", ROOT / "outputs/full_wx1d"
     print(f"weather alignment: {ALIGNMENT} -> {OUT.relative_to(ROOT)}, {FULL.relative_to(ROOT)}")
+
+    # Step 1. Load the raw files, and note basic facts about them for the report.
     em, runs = load_emissions(), load_weather_runs()
     hours = sorted(em)
     file_facts = {
@@ -301,6 +411,8 @@ def main(grid="AECI"):
         "weather_run_days_twice": sorted(d.date().isoformat() for d, c in runs.items() if len(c) > 1),
         "weather_runs_all_zero": sorted(d.date().isoformat() for d, c in runs.items() for r in c if all(num(x[k]) == 0 for _, x in r for k in WX.values())),
     }
+
+    # Step 2. Check every issue day in every split. Keep the days that pass; record why the others fail.
     report = {"grid": GRID, "weather_alignment": ALIGNMENT, "file_facts": file_facts, "splits": {}}
     kept_by_split = OrderedDict()
     for split, (a, b) in SPLITS.items():
@@ -310,7 +422,8 @@ def main(grid="AECI"):
         while d <= b:
             why = check_window(em, runs, d, split)
             if why:
-                reasons[why] += 1; rejected.append({"issue_day": d.isoformat(), "reason": why})
+                reasons[why] += 1
+                rejected.append({"issue_day": d.isoformat(), "reason": why})
             else:
                 kept += 1
                 kept_by_split[split].append(d)
@@ -322,6 +435,8 @@ def main(grid="AECI"):
                                    "kept_if_overlap_also_excluded": kept - len(overlap)}
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / f"{GRID}_file_check.json").write_text(json.dumps(report, indent=2) + "\n")
+
+    # Step 3. Build the five pilot windows.
     summaries = []
     with open(OUT / f"{GRID}_model_inputs.jsonl", "w") as fi, open(OUT / f"{GRID}_scoring_only.jsonl", "w") as fs:
         for n, ds in enumerate(PILOT_DAYS, 1):
@@ -330,8 +445,12 @@ def main(grid="AECI"):
             assert check_window(em, runs, day, split) is None, f"{ds} fails the filters"
             inputs, scoring, summary = build_window(em, runs, day, f"{GRID}-{n:02d}")
             summary["split"] = split
-            fi.write(json.dumps(inputs) + "\n"); fs.write(json.dumps(scoring) + "\n"); summaries.append(summary)
+            fi.write(json.dumps(inputs) + "\n")
+            fs.write(json.dumps(scoring) + "\n")
+            summaries.append(summary)
     (OUT / f"{GRID}_pilot_summary.json").write_text(json.dumps(summaries, indent=2) + "\n")
+
+    # Print what was found, so a run can be read without opening the files.
     print(json.dumps(file_facts, indent=1))
     for s, v in report["splits"].items():
         print(f"{s}: {v['issue_days']} issue days, {v['kept_by_guide_rules']} kept by guide rules, rejected {v['reject_reasons']}, "
@@ -340,6 +459,8 @@ def main(grid="AECI"):
             print("   ", r["issue_day"], r["reason"])
     for s in summaries:
         print(s["window_id"], s["issue_day"], f"last {s['last_value']} MAE {s['mae_last_value']:.2f} daily {s['mae_daily_repeat']:.2f}")
+
+    # Step 4. Build every kept window, with a leak test on each. The run stops with an error if any fail.
     full = build_full(em, runs, kept_by_split)
     for split, v in full["splits"].items():
         print(f"full {split}: {v['windows']} windows, {v['first_issue_day']} to {v['last_issue_day']}, "

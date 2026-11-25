@@ -1,5 +1,16 @@
 """Convert CarbonCast windows to the Context is Key (CiK) record format.
 
+The build script writes each window as two lines in two files: what a model may see, and the hidden
+answers. CiK keeps a whole forecasting question in one record with 17 fields. This script joins the two
+and fills those fields, so code written for the CiK benchmark can read this dataset unchanged.
+
+Where each part of a window goes:
+  context text, fuel-mix sentence   -> background  (after a one-line description of the series)
+  context text, weather sentence    -> scenario
+  past timestamps and values        -> past_time
+  future timestamps and answers     -> future_time  (the answers are in the record; see the note below)
+  nothing                           -> constraints  (empty: this dataset states no constraints)
+
 Reads the files written by scripts/aeci_pilot.py and writes:
   outputs/cik_format/AECI_<split>.jsonl          every window in the split, one CiK-style record per line
   outputs/pilot/AECI_pilot_cik_format.jsonl      the five pilot windows in the same format
@@ -25,11 +36,14 @@ SERIES_COLUMN = "carbon_intensity"
 # CiK context-source codes: c_i intemporal, c_h historical, c_cov covariate, c_f future.
 CONTEXT_SOURCES = ["c_i", "c_h", "c_cov", "c_f"]
 SKILLS = ["forecasting", "natural language processing"]  # CiK's default skills
+# The words that begin the weather sentence in each build. They mark where the context text is cut in two:
+# everything before is the fuel-mix sentence (background), everything from here on is the weather (scenario).
 SCENARIO_MARKS = ("The same-day 00:00 UTC weather run", "The weather forecast available at forecast start",
                   "Weather forecast issued ")
 
 
 def read_jsonl(path):
+    """Read a file with one JSON record per line into a list."""
     with open(path) as f:
         return [json.loads(line) for line in f if line.strip()]
 
@@ -48,6 +62,8 @@ def metric_scaling(train_scoring):
 
 
 def to_cik(inputs, scoring, scaling, grid=GRID):
+    """Join one window's model inputs and hidden answers into one CiK record (a dict with 17 fields).
+    `scaling` is the number from metric_scaling(); it is the same for every record of a grid."""
     assert inputs["window_id"] == scoring["window_id"] and inputs["future_timestamps"] == scoring["future_timestamps"]
     assert all(scoring["target_mask"]), "CiK has no mask field, so every answer must be observed"
     marker = next((mark for mark in SCENARIO_MARKS if mark in inputs["context"]), None)
@@ -86,6 +102,7 @@ def main():
     if args.variant:
         FULL, PILOT, OUT = ROOT / f"outputs/full_{args.variant}", ROOT / f"outputs/pilot_{args.variant}", ROOT / f"outputs/cik_format_{args.variant}"
     grid = args.grid
+    # The scaling number comes from training answers only.
     train_scoring = read_jsonl(FULL / f"{grid}_train_scoring_only.jsonl")
     if grid == "DE":
         validation = read_jsonl(FULL / f"{grid}_validation_scoring_only.jsonl")
@@ -94,6 +111,7 @@ def main():
     scaling = metric_scaling(train_scoring)
     OUT.mkdir(parents=True, exist_ok=True)
     print(f"metric_scaling = {scaling!r} (mean training answer range {1 / scaling:.2f} gCO2eq/kWh)")
+    # One output file per split, then the five pilot windows.
     for split in SPLITS:
         ins = read_jsonl(FULL / f"{grid}_{split}_model_inputs.jsonl")
         sco = read_jsonl(FULL / f"{grid}_{split}_scoring_only.jsonl")
