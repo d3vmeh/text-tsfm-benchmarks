@@ -2,7 +2,7 @@
 
 Forecasting datasets for testing whether text helps a time-series model forecast better. The first dataset is built from [CarbonCast](https://github.com/carbonfirst/CarbonCast): hourly carbon intensity of electricity for two grids, AECI (United States) and DE (Germany). IoBT is planned and not built yet.
 
-This repo holds the code that builds the datasets and the built AECI dataset. The code that runs models on it is in a separate repo, `text-tsfm-eval`.
+This repo holds the code that builds the datasets and the built AECI and DE datasets. The code that runs models on it is in a separate repo, `text-tsfm-eval`.
 
 ## Contents
 
@@ -16,7 +16,7 @@ This repo holds the code that builds the datasets and the built AECI dataset. Th
 - [Two readings of the weather file](#two-readings-of-the-weather-file)
 - [Rebuild from the raw files](#rebuild-from-the-raw-files)
 - [What is in each folder](#what-is-in-each-folder)
-- [Build and evaluate DE](#build-and-evaluate-de)
+- [AECI and DE evaluation notes](#aeci-and-de-evaluation-notes)
 - [Sources](#sources)
 
 ## What one record is
@@ -56,11 +56,11 @@ One window per day. Every window starts at 06:00 UTC.
 | AECI | train | 2019-01-22 to 2021-09-30 | 983 | `outputs/cik_format/AECI_train.jsonl` |
 | AECI | validation | 2021-10-01 to 2021-12-28 | 89 | `outputs/cik_format/AECI_validation.jsonl` |
 | AECI | test | 2022-01-01 to 2022-12-30 | 360 | `outputs/cik_format/AECI_test.jsonl` |
-| DE | train | 2020-01-22 to 2021-04-30 | 465 | built locally, see [Build and evaluate DE](#build-and-evaluate-de) |
-| DE | validation | 2021-05-01 to 2021-06-27 | 58 | built locally |
-| DE | test | 2021-07-01 to 2021-12-28 | 179 | built locally |
+| DE | train | 2020-01-22 to 2021-04-30 | 465 | `outputs/cik_format/DE_train.jsonl` |
+| DE | validation | 2021-05-01 to 2021-06-27 | `outputs/cik_format/DE_validation.jsonl` |
+| DE | test | 2021-07-01 to 2021-12-28 | 179 | `outputs/cik_format/DE_test.jsonl` |
 
-The AECI files are in this repo. A second copy of AECI, with the weather read one day later, is in `outputs/cik_format_wx1d/` (983, 89 and 361 windows). See [Two readings of the weather file](#two-readings-of-the-weather-file).
+The AECI and DE splits are in this repo. A second copy of AECI, with the weather read one day later, is in `outputs/cik_format_wx1d/` (983, 89 and 361 windows). See [Two readings of the weather file](#two-readings-of-the-weather-file).
 
 Use validation for every experiment. Keep test for the final result.
 
@@ -126,6 +126,8 @@ A day is left out if, across its 504 past hours and 72 answer hours:
 
 or if its weather block is missing, appears twice, is incomplete, or is all zeros.
 
+### AECI
+
 For AECI the emissions data passes every check. Five test days are left out because of the weather file:
 
 | Issue day | Reason |
@@ -137,6 +139,17 @@ For AECI the emissions data passes every check. Five test days are left out beca
 The full list for each grid, with counts, is written to `outputs/pilot/<GRID>_file_check.json`.
 
 One thing to know: the last two AECI training windows (2021-09-29 and 2021-09-30) have answers that run past the first validation forecast start. They are kept because the guide's date ranges include them. Leave them out when fitting a model that will be scored on validation.
+
+### DE
+
+Two test days are excluded:
+
+| Issue day | Reason |
+| --- | --- |
+| 2021-12-04 | The weather block appears twice. |
+| 2021-12-05 | The weather block is missing. |
+
+See the [DE file check](outputs/pilot/DE_file_check.json) for details.
 
 ## How the build guards against mistakes
 
@@ -158,7 +171,11 @@ Only the weather sentence differs between the two copies. The past values, the a
 
 ## Rebuild from the raw files
 
-The raw files are not in this repo. [SOURCE_LOG.md](SOURCE_LOG.md) gives the exact commands to download them and the checksums to confirm them. Then, from the repo root, with Python 3.10 or later and no extra packages:
+The published AECI and DE splits are available in [`outputs/cik_format/`](outputs/cik_format/). Rebuild them to reproduce the published files or generate separate model-input and scoring files. The raw CSVs are not included in this repository. See [SOURCE_LOG.md](SOURCE_LOG.md) for download commands, file locations, and checksums.
+
+Run the commands below from the repository root with Python 3.10 or later. No extra packages are required.
+
+### AECI
 
 ```bash
 python3 scripts/aeci_pilot.py                                    # AECI windows, default reading
@@ -169,6 +186,14 @@ python3 scripts/aeci_covariates.py                               # optional: hou
 ```
 
 The AECI build takes a few seconds. It prints the counts for each split and the leak-test result. The rebuilt files in `outputs/cik_format/` match the ones in this repo byte for byte.
+
+### DE
+
+```bash
+python scripts/de_pilot.py                                                # default DE window
+python scripts/to_cik_format.py --grid DE                                 # default DE files
+python scripts/aeci_covariates.py --grid DE --splits validation,test      # optional: hourly weather as numbers
+```
 
 ## What is in each folder
 
@@ -181,37 +206,33 @@ The AECI build takes a few seconds. It prints the counts for each split and the 
 | [docs/CODE_GUIDE.md](docs/CODE_GUIDE.md) | A walk through the code, function by function. | Yes |
 | [SOURCE_LOG.md](SOURCE_LOG.md) | Where every raw file came from, with commits, checksums and column meanings. | Yes |
 | [examples/](examples/) | Windows built by hand, with the raw file rows they come from. | Yes |
-| `outputs/cik_format/` | **The AECI dataset**, default reading, one file per split. | Yes |
+| `outputs/cik_format/` | The AECI and DE datasets. default weather alignment, one file per split. | Yes |
 | `outputs/cik_format_wx1d/` | The AECI dataset, `one_day_later` reading. | Yes |
 | `outputs/pilot/`, `outputs/pilot_wx1d/` | Five sample windows per grid and the file check. | Yes |
 | `outputs/full/`, `outputs/full_wx1d/` | Every window as separate inputs and answers files, plus the build report. | No, rebuilt by the scripts |
 | `outputs/covariates/` | Hourly weather series for each window. | No, rebuilt by the scripts |
 | `data/raw/` | The raw downloads. Never edited. | No |
 
-## Build and evaluate DE
+## AECI and DE evaluation notes
 
-Put the two checksummed DE CSVs in `data/raw/CarbonCast-main/data/DE/`. See [the source log](SOURCE_LOG.md#carboncast-main-branch-de). Run from the repo root with Python 3.10 or later.
+Use the validation split for model development and reserve the test split for final results. When using the CiK files, pass the timestamps from `future_time` to the model and reserve the corresponding values for scoring. If you rebuild the separate exports under `outputs/full/`, use the `*_model_inputs.jsonl` files for inference and the matching `*_scoring_only.jsonl` files for scoring.
 
-```bash
-python scripts/de_pilot.py
-python scripts/to_cik_format.py --grid DE
-python scripts/aeci_covariates.py --grid DE --splits validation,test
-```
+### AECI
 
-The build retains 465 training, 58 validation, and 179 test windows. The test split excludes December 4, 2021 (duplicate weather run) and December 5, 2021 (missing weather run). See [the first DE example](examples/de_window_2020-01-22.md) and [the whole-file check](outputs/pilot/DE_file_check.json).
+The September 29–30, 2021 training windows include target hours that overlap the validation period. Exclude those two windows when fitting a model that will be evaluated on validation.
 
-For inference, read the `DE_*_model_inputs.jsonl` files under `outputs/full/`. Use the matching `scoring_only` files for evaluation. When reading the CiK export, pass the future timestamps to the model and keep the values in `future_time` for scoring.
+### DE
+
+The April 29–30, 2021 training windows share 48 target timestamps with validation. Exclude those two windows when fitting a model that will be evaluated on validation. The DE CiK converter also excludes them when computing metric scaling.
 
 | Split | Windows | Last-value MAE | Daily-repeat MAE |
-|---|---:|---:|---:|
+| --- | ---: | ---: | ---: |
 | Validation | 58 | 78.64 | 68.88 |
 | Test | 179 | 75.49 | 70.58 |
 
-MAE is in gCO2e/kWh. The build report in `outputs/full/DE_build_report.json` contains the exact scores. The April 29–30, 2021 training windows share 48 target timestamps with validation. The dataset preserves the guide's split dates. Exclude those two training windows before fitting a model for validation. The DE CiK converter also leaves them out of metric scaling.
+MAE is measured in gCO₂e/kWh. The full scores are written to `outputs/full/DE_build_report.json` when you rebuild DE.
 
-DE uses the guide's same-day weather alignment. The numeric covariate builder covers all 58 validation windows and 158 test windows. December 6–26 have usable same-day forecasts but lack a complete set of historical forecasts because of the December 4–5 source issues. For a numeric-wind comparison, score all methods on the same 158 test IDs. The full 179-window test set supports the history-only and text experiments.
-
-The DE text is worded a little differently from the AECI text: it gives each forecast day's start and end hour and lists more fuel sources. Both are made by the same function.
+The numeric weather covariates cover all 58 validation windows and 158 test windows. The December 6–26, 2021 test windows have valid same-day weather forecasts, but their historical weather forecasts are incomplete because of the December 4–5 source issues. For comparisons involving numeric weather covariates, score every method on the same 158 test windows. History-only and text-context experiments can use all 179 test windows.
 
 ## Sources
 
