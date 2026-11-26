@@ -57,7 +57,7 @@ One window per day. Every window starts at 06:00 UTC.
 | AECI | validation | 2021-10-01 to 2021-12-28 | 89 | `outputs/cik_format/AECI_validation.jsonl` |
 | AECI | test | 2022-01-01 to 2022-12-30 | 360 | `outputs/cik_format/AECI_test.jsonl` |
 | DE | train | 2020-01-22 to 2021-04-30 | 465 | `outputs/cik_format/DE_train.jsonl` |
-| DE | validation | 2021-05-01 to 2021-06-27 | `outputs/cik_format/DE_validation.jsonl` |
+| DE | validation | 2021-05-01 to 2021-06-27 | 58 | `outputs/cik_format/DE_validation.jsonl` |
 | DE | test | 2021-07-01 to 2021-12-28 | 179 | `outputs/cik_format/DE_test.jsonl` |
 
 The AECI and DE splits are in this repo. A second copy of AECI, with the weather read one day later, is in `outputs/cik_format_wx1d/` (983, 89 and 361 windows). See [Two readings of the weather file](#two-readings-of-the-weather-file).
