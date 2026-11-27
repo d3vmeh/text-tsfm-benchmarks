@@ -160,7 +160,7 @@ See the [DE file check](outputs/pilot/DE_file_check.json) for details.
 
 ## Two readings of the weather file
 
-The weather file gives each row a timestamp. The project guide reads that timestamp as the hour the row forecasts. A comparison with the wind power AECI actually generated suggests each row describes the weather 24 hours after its timestamp. The cause is not known, so both readings are built:
+The weather file gives each row a timestamp. The project guide reads that timestamp as the hour the row forecasts. A comparison with the wind power AECI actually generated suggests each row describes the weather 24 hours after its timestamp: the day-to-day change in the wind forecast has a correlation of -0.03 with the same day's change in wind generation, and +0.72 with the next day's. The check is [analysis/weather_alignment_check.py](analysis/weather_alignment_check.py). The cause is not known, so both readings are built:
 
 | Copy | How the weather file is read | Block used for issue day D | Folder |
 |---|---|---|---|
@@ -203,6 +203,7 @@ python scripts/aeci_covariates.py --grid DE --splits validation,test      # opti
 | [scripts/de_pilot.py](scripts/de_pilot.py) | Runs the same build with DE's settings. | Yes |
 | [scripts/to_cik_format.py](scripts/to_cik_format.py) | Converts the windows to CiK records. | Yes |
 | [scripts/aeci_covariates.py](scripts/aeci_covariates.py) | Writes the weather forecast hour by hour, for models that take numeric inputs. | Yes |
+| [analysis/weather_alignment_check.py](analysis/weather_alignment_check.py) | Compares the weather forecast with the wind power actually generated, at different time shifts. The evidence for the second reading of the weather file. | Yes |
 | [docs/CODE_GUIDE.md](docs/CODE_GUIDE.md) | A walk through the code, function by function. | Yes |
 | [SOURCE_LOG.md](SOURCE_LOG.md) | Where every raw file came from, with commits, checksums and column meanings. | Yes |
 | [examples/](examples/) | Windows built by hand, with the raw file rows they come from. | Yes |
